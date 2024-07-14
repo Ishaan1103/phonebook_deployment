@@ -1,11 +1,13 @@
 import morgan from 'morgan';
 import express from 'express'
 import cors from 'cors'
+import PhoneBook from './modules/person.js'
 const app = express();
-const PORT = process.env.PORT||3001;
+const PORT = process.env.PORT;
 app.use(cors())
-app.use(express.json());
 app.use(express.static('dist'))
+app.use(express.json());
+// app.use(express.static('dist'))
 // app.use(morgan((tokens, req, res) => {
 //     return [
 //         tokens.method(req, res),
@@ -16,6 +18,20 @@ app.use(express.static('dist'))
 //         JSON.stringify(req.body)
 //     ].join()
 // }));
+
+const unknownEndpoint = (request, response) => {
+    response.status(404).send({ error: 'unknown endpoint' })
+    }
+
+const errormessage=(error,req,res,next)=>{
+    if (error.name === 'CastError') {
+        return res.status(400).send({ error : 'malformatted id' })
+    } 
+    else if(error.name === 'ValidationError'){
+        return res.status(400).send(error.message)
+    }
+    next(error);
+}
 
 app.use(morgan(':method :url :status :res[content-length] - :response-time ms :combined'))
 
@@ -55,77 +71,60 @@ app.get('/', (req, res) => {
 })
 
 app.get('/api/persons', (req, res) => {
-    res.json(persons)
+    PhoneBook.find({})
+    .then(numbers => {
+        res.send(numbers)
+    })
+    
 })
 
 app.get('/info', (req, res) => {
     const date = new Date;
     res.send(`<p>PhoneBook has info for ${persons.length} people</p><br/> ${date.toString()}`)
 })
-app.get('/api/persons/:id', (req, res) => {
-    const id = req.params.id
-    const person = persons.find(person => person.id === id)
-    if (person) {
-        res.json(person)
-    }
-    else {
-        res.status(404).json({
-            error: "cannot find person"
-        })
-    }
-})
-const generateId = () => {
-    const maxId = persons.length > 0 ? Math.max(...persons.map(person => parseInt(person.id))) : 0
-    return (maxId + 1).toString();
-}
-app.post('/api/persons', (req, res) => {
-    const body = req.body
-    if (!body.name) {
-        return res.status(400).json({
-            error: 'Name Missing'
-        })
-    }
-    if (!body.number) {
-        return res.status(400).json({
-            error: 'Number Missing'
-        })
-    }
-    const nameExist = persons.find((person) => person.name === body.name)
-    if (nameExist) {
-        res.status(400).json(
-            { error: 'name must be unique' }
-        )
-    }
-    const numberExist = persons.find((person) => person.number === body.number)
-    if (numberExist) {
-        res.status(400).json(
-            { error: 'number must be unique' }
-        )
-    }
-    else {
-        const person = {
-            id: generateId(),
-            name: body.name,
-            number: body.number
-        }
-        persons = persons.concat(person)
-        res.json(person)
-    }
+
+app.get('/api/persons/:id', (req, res,next) => {
+    PhoneBook.findById(req.params.id)
+    .then(number=>{
+        res.send(number)
+    })
+    .catch((err)=>{
+        return next(err)
+    })
 })
 
-app.delete('/api/persons/:id', (req, res) => {
-    const id = req.params.id;
-    const findId = persons.find(person => person.id === id)
-    if (!findId) {
-        return res.status(404).json({
-            error: 'Not found'
-        })
-    }
-    persons = persons.filter((person) => {
-        return person.id !== id
+app.post('/api/persons', (req, res, next) => {
+    const body = req.body;
+    const person = new PhoneBook({
+        name: body.name,
+        number: body.number
     })
-    res.status(204).end()
+    person.save()
+    .then(savedNum=>{
+        res.json(savedNum)
+    })
+    .catch(err=> next(err))
 })
+
+app.put('/api/persons/:id',(req,res,next)=>{
+    const {name,number} = req.body
+    PhoneBook.findByIdAndUpdate(req.params.id, {name,number}, {new:true , runValidators: true, context: 'query'})
+    .then(updated=>{
+        res.json(updated)
+    })
+    .catch(error => next(error))
+})
+
+app.delete('/api/persons/:id', (req, res, next) => {
+    PhoneBook.findByIdAndDelete(req.params.id)
+    .then(result =>{
+        res.status(204).end()
+    })
+    .catch(err => next(err))
+})
+
+app.use(unknownEndpoint)
+app.use(errormessage)
 
 app.listen(PORT, () => {
     console.log(`server listening at http://localhost:${PORT}`);
